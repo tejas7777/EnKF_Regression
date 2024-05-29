@@ -2,7 +2,7 @@ import torch
 import copy
 
 class EnKFOptimizer:
-    def __init__(self, model, lr=1e-3, sigma=0.1, k=10, gamma=1e-3, max_iterations=10):
+    def __init__(self, model, lr=1e-3, sigma=0.1, k=100, gamma=1e-3, max_iterations=100):
         self.model = model
         self.lr = lr
         self.sigma = sigma
@@ -42,10 +42,10 @@ class EnKFOptimizer:
             Step [2] Evaluate the forward model
             '''
             current_params_unflattened = self.unflatten_parameters(self.theta)
-            F_current = F(current_params_unflattened)  #Assuming F takes unflattened params and returns a scalar
+            F_current = F(current_params_unflattened)  # Assuming F returns the raw output
             Q = torch.zeros(1, self.k)  # Initialize Q to store the differences
 
-            #print(f"F CURRENT {F_current}")
+            #print(f"F CURRENT {F_current.shape}")
 
             for i in range(self.k):
                 # Create perturbed parameters for particle i
@@ -56,44 +56,44 @@ class EnKFOptimizer:
                 F_perturbed = F(perturbed_params_unflattened)
 
                 # Compute the difference and store it in Q
-                Q[:, i] = F_perturbed - F_current
+                Q[0, i] = (F_perturbed - F_current).mean().item()  # Store mean difference for scalar output
+
+            #print(f"Shape of Q: {Q.shape}")  # Should be [1, k]
 
             '''
             Step [3] r Hj = Qj(transpose) x Qj + Γ
             '''
-
             H_j = Q.T @ Q + self.gamma * torch.eye(self.k)
             H_inv = torch.inverse(H_j)
 
             '''
             Step [4] Calculate the Gradient of loss function with respect to the current parameters
             '''
-
             gradient = self.calculate_gradient(F, D)
             gradient = gradient.view(-1, 1)  # Ensure it's a column vector
-
+            
             '''
             Step [5] Update the paramters
             '''
-            #print(f"Shape of Omega: {self.Omega.shape}")  # Should be [n, k]
-            #print(f"Shape of H_inv: {H_inv.shape}")      # Should be [k, k]
-            #print(f"Shape of Q Transpose (Q.T): {Q.T.shape}")  # Should be [k, 1]
-            #print(f"Shape of Gradient: {gradient.shape}")      # Should be [n, 1]
+            # print(f"Shape of Omega: {self.Omega.shape}")  # Should be [n, k]
+            # print(f"Shape of H_inv: {H_inv.shape}")      # Should be [k, k]
+            # print(f"Shape of Q Transpose (Q.T): {Q.T.shape}")  # Should be [k, 1]
+            # print(f"Shape of Gradient: {gradient.shape}")      # Should be [n, 1]
 
-
-            adjustment = H_inv @ Q.T  # This results in [10, 1]
-            scaled_adjustment = self.Omega @ adjustment  # Proper multiplication, results in [2111, 1]
+            adjustment = H_inv @ Q.T  # This results in [k, 1]
+            scaled_adjustment = self.Omega @ adjustment  # Proper multiplication, results in [n, 1]
             update = scaled_adjustment * gradient  # Element-wise multiplication to scale the update by the gradient
 
-            #print("Update calculated succesfully")
-            #print(f"Shape of Update: {update.shape}")      # Should be [n, 1]
+            # print("Update calculated successfully")
+            # print(f"Shape of Update: {update.shape}")  # Should be [n, 1]
 
-            update = update.view(-1)
-            self.theta -= self.lr * update
+            # Reshape update to be a flat tensor before applying it to theta
+            update = update.view(-1)  # Reshape to [n]
 
+            self.theta -= self.lr * update  # Now both are [n], so the operation is valid
+
+            # Update the actual model parameters
             self.update_model_parameters(self.theta)
-
-        print("Updated the parameters")
 
 
     def update_model_parameters(self, flat_params):
