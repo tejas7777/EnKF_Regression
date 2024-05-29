@@ -4,11 +4,10 @@ import torch.optim as optim
 from sklearn.datasets import load_diabetes
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from optimiser.enkf import EnKFOptimizer  # Import the EnKF optimizer
+from optimiser.enkf import EnKFOptimizer  #Import the EnKF optimizer
 from model.dnn import DNNModel
 
 class ModelTrain():
-    
     def __init__(self,model):
         self.model = model
         self.loss_function = nn.MSELoss()
@@ -28,30 +27,30 @@ class ModelTrain():
         self.X_test = scaler.transform(self.X_test)
 
     def __convert_data_to_tensor(self):
-        # Convert to PyTorch tensors
+        #Convert to PyTorch tensors
         self.X_train = torch.tensor(self.X_train, dtype=torch.float32)
         self.X_test = torch.tensor(self.X_test, dtype=torch.float32)
         self.y_train = torch.tensor(self.y_train, dtype=torch.float32).view(-1, 1)
         self.y_test = torch.tensor(self.y_test, dtype=torch.float32).view(-1, 1)
 
     def F(self, parameters):
-        with torch.no_grad():  # Ensure no gradients are computed
-            # Update the model parameters directly from the list of unflattened tensors
+        with torch.no_grad(): 
+            #Update the model parameters directly from the list of unflattened tensors
             for original_param, new_param in zip(self.model.parameters(), parameters):
                 original_param.data.copy_(new_param.data)
 
-            # Perform the forward pass with the adjusted parameters
-            output =  self.model(self.X_train)  # Compute the output of the model
+            #Perform the forward pass with the adjusted parameters
+            output =  self.model(self.X_train)
 
             return output
 
 
-    def train(self, num_epochs=100):
+    def train(self, num_epochs=10):
         print("TRAINING STARTED ...")
         for epoch in range(num_epochs):
             self.optimiser.step(F=self.F, D=self.loss_wrapper)
 
-            self.model.train()
+            #self.model.train()
             with torch.no_grad():
                 output = self.model(self.X_train)
                 loss = self.loss_function(output, self.y_train)

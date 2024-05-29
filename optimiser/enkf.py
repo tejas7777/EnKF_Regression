@@ -2,7 +2,7 @@ import torch
 import copy
 
 class EnKFOptimizer:
-    def __init__(self, model, lr=1e-3, sigma=0.1, k=100, gamma=1e-3, max_iterations=100):
+    def __init__(self, model, lr=1e-3, sigma=0.1, k=50, gamma=1e-3, max_iterations=10):
         self.model = model
         self.lr = lr
         self.sigma = sigma
@@ -33,32 +33,28 @@ class EnKFOptimizer:
             '''
             Step [1] Draw K Particles
             '''
-            self.Omega = torch.randn((self.theta.numel(), self.k)) * self.sigma  # Draw particles
-            particles = self.theta.unsqueeze(1) + self.Omega  # Add noise to the current parameter estimate
-            # Convert particles back to the parameter shapes for each model evaluation
+            self.Omega = torch.randn((self.theta.numel(), self.k)) * self.sigma  #Draw particles
+            particles = self.theta.unsqueeze(1) + self.Omega  #Add noise to the current parameter estimate
+            #Convert particles back to the parameter shapes
             perturbed_parameters_list = [self.unflatten_parameters(particles[:, i]) for i in range(self.k)]
 
             '''
             Step [2] Evaluate the forward model
             '''
             current_params_unflattened = self.unflatten_parameters(self.theta)
-            F_current = F(current_params_unflattened)  # Assuming F returns the raw output
-            Q = torch.zeros(1, self.k)  # Initialize Q to store the differences
-
-            #print(f"F CURRENT {F_current.shape}")
+            F_current = F(current_params_unflattened)
+            Q = torch.zeros(1, self.k)
 
             for i in range(self.k):
-                # Create perturbed parameters for particle i
                 perturbed_params = particles[:, i]
                 perturbed_params_unflattened = self.unflatten_parameters(perturbed_params)
 
-                # Evaluate the forward model on the perturbed parameters
+                #Evaluate the forward model on the perturbed parameters
                 F_perturbed = F(perturbed_params_unflattened)
 
-                # Compute the difference and store it in Q
-                Q[0, i] = (F_perturbed - F_current).mean().item()  # Store mean difference for scalar output
+                #Compute the difference
+                Q[0, i] = (F_perturbed - F_current).mean().item()  #Store mean difference for scalar output
 
-            #print(f"Shape of Q: {Q.shape}")  # Should be [1, k]
 
             '''
             Step [3] r Hj = Qj(transpose) x Qj + Γ
@@ -70,29 +66,20 @@ class EnKFOptimizer:
             Step [4] Calculate the Gradient of loss function with respect to the current parameters
             '''
             gradient = self.calculate_gradient(F, D)
-            gradient = gradient.view(-1, 1)  # Ensure it's a column vector
+            gradient = gradient.view(-1, 1)  #Ensure it's a column vector
             
             '''
             Step [5] Update the paramters
             '''
-            # print(f"Shape of Omega: {self.Omega.shape}")  # Should be [n, k]
-            # print(f"Shape of H_inv: {H_inv.shape}")      # Should be [k, k]
-            # print(f"Shape of Q Transpose (Q.T): {Q.T.shape}")  # Should be [k, 1]
-            # print(f"Shape of Gradient: {gradient.shape}")      # Should be [n, 1]
 
-            adjustment = H_inv @ Q.T  # This results in [k, 1]
-            scaled_adjustment = self.Omega @ adjustment  # Proper multiplication, results in [n, 1]
-            update = scaled_adjustment * gradient  # Element-wise multiplication to scale the update by the gradient
-
-            # print("Update calculated successfully")
-            # print(f"Shape of Update: {update.shape}")  # Should be [n, 1]
-
-            # Reshape update to be a flat tensor before applying it to theta
+            adjustment = H_inv @ Q.T  #Shape [k, m]
+            scaled_adjustment = self.Omega @ adjustment  # Shape [n, m]
+            update = scaled_adjustment * gradient
             update = update.view(-1)  # Reshape to [n]
 
-            self.theta -= self.lr * update  # Now both are [n], so the operation is valid
+            self.theta -= self.lr * update  #Now both are [n]
 
-            # Update the actual model parameters
+            #Update the actual model parameters
             self.update_model_parameters(self.theta)
 
 
@@ -106,24 +93,23 @@ class EnKFOptimizer:
 
 
     def calculate_gradient(self, F, loss, epsilon=1e-5):
-        grad = torch.zeros_like(self.theta)  # Gradient tensor initialized to zero
+        grad = torch.zeros_like(self.theta)
 
         for i in range(len(self.theta)):
-            # Save original parameter value
             original_value = self.theta[i].item()
 
-            # Perturb parameter positively
+            #Perturb positively
             self.theta[i] = original_value + epsilon
             loss_plus = loss(F(self.unflatten_parameters(self.theta)))
 
-            # Perturb parameter negatively
+            #Perturb negatively
             self.theta[i] = original_value - epsilon
             loss_minus = loss(F(self.unflatten_parameters(self.theta)))
 
-            # Approximate derivative (finite difference)
+            #Approximate derivative
             grad[i] = (loss_plus - loss_minus) / (2 * epsilon)
 
-            # Restore original parameter value
+            #Restore original parameter value
             self.theta[i] = original_value
 
         return grad
